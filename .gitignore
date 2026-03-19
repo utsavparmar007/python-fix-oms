@@ -1,0 +1,24 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Compiled Python files (the "junk" you saw in your last commit)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Database
+*.db
+
+# QuickFIX local data (logs and message store)
+logs/
+store/
+
+# IDE specific settings
+.vscode/
+.idea/
+
+# Windows specific
+Thumbs.db
+desktop.ini
