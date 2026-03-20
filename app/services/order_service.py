@@ -3,6 +3,7 @@ from app.mapping.fix_mapper import FixMapper
 from app.services.order_state_machine import OrderStateMachine
 from app.services.risk_engine import RiskEngine, RiskException
 from app.services.position_service import PositionService
+from app.services.execution_service import ExecutionService  
 
 class OrderService:
 
@@ -10,6 +11,7 @@ class OrderService:
         self.repo = OrderRepository()
         self.mapper = FixMapper()
         self.position_service = PositionService()
+        self.execution_service = ExecutionService()  
 
     # ---------------- NEW ORDER ----------------
     def handle_new_order(self, order_obj):
@@ -27,14 +29,18 @@ class OrderService:
     
         # Logic: Fill 50% of remaining leaves quantity
         fill_qty = order.leaves_qty // 2
-        if fill_qty <= 0: fill_qty = order.leaves_qty # Fallback for odd numbers
+        if fill_qty <= 0: fill_qty = order.leaves_qty 
 
         order.cum_qty += fill_qty
         order.leaves_qty -= fill_qty
         order.status = "PARTIALLY_FILLED"
     
-        # Update Position Tracker
+        # Position Tracker
         self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
+        
+        # Record the partial fill
+        self.execution_service.create_execution(order, fill_qty, order.price)
+        
         self.repo.update(order)
         return order
 
@@ -49,8 +55,12 @@ class OrderService:
         order.leaves_qty = 0
         order.status = "FILLED"
     
-        # Update Position Tracker
+        # Position Tracker
         self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
+        
+        # Record the final fill
+        self.execution_service.create_execution(order, fill_qty, order.price)
+    
         self.repo.update(order)
         return order
     
