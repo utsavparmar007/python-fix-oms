@@ -6,7 +6,9 @@ from flask import Flask, jsonify, request
 from app.fix.application import OMSApplication
 from app.repository.order_repository import OrderRepository
 from app.db.database import engine, Base
-from app.models.order import Order 
+from app.models.order import Order
+from app.models.execution import Execution 
+from app.services.execution_service import ExecutionService 
 
 # 1. Initialize Database Tables
 Base.metadata.create_all(bind=engine)
@@ -14,8 +16,10 @@ Base.metadata.create_all(bind=engine)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("OMS")
 
-# Global instance
+# Global instances
 oms_application = OMSApplication()
+# --- NEW INSTANCE ---
+execution_service = ExecutionService() 
 
 def start_fix():
     try:
@@ -45,49 +49,57 @@ def get_orders():
     return jsonify([{
         "cl_ord_id": o.cl_ord_id,
         "symbol": o.symbol,
-        "side": "BUY" if o.side == 1 else "SELL",
         "qty": o.quantity,
+        "price": o.price,
         "status": o.status,
         "cum_qty": o.cum_qty,
-        "price": o.price
+        "leaves_qty": o.leaves_qty
     } for o in db_orders])
 
-# --- JSON ---
+# --- NEW ROUTE: TRADE HISTORY ---
+@app.route("/history", methods=["GET"])
+def get_history():
+    """Fetches all trade executions for auditing."""
+    executions = execution_service.get_all_executions()
+    return jsonify([{
+        "id": ex.id,
+        "cl_ord_id": ex.cl_ord_id,
+        "symbol": ex.symbol,
+        "fill_qty": ex.fill_qty,
+        "fill_price": ex.fill_price,
+        "timestamp": ex.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    } for ex in executions])
 
 @app.route("/admin/execute", methods=["POST"])
 def admin_execute():
-    """
-    Control everything via JSON.
-    Actions: NEW, FILL, PARTIAL, CANCEL, REPLACE
-    """
-    data = request.get_json()
-    action = data.get("action", "").upper()
+    """Manual Terminal Control for Fills, Cancels, and Replaces."""
+    data = request.json
+    action = data.get("action")
     cl_ord_id = data.get("id")
-    target_client = "CLIENT" 
+    target_client = data.get("client", "CLIENT")
 
     try:
-        # --- NEW ---
+        # --- NEW ORDER ---
         if action == "NEW":
-            qty = int(data.get("qty", 100))
             new_order = Order(
-                cl_ord_id=str(uuid.uuid4()),
+                cl_ord_id=str(uuid.uuid4())[:8],
                 symbol=data.get("symbol", "AAPL"),
-                quantity=qty,
-                price=float(data.get("price", 150.0)),
-                side=1 if data.get("side", "BUY").upper() == "BUY" else 2,
+                quantity=data.get("qty", 100),
+                price=data.get("price", 150.0),
+                side=1, 
                 status="NEW",
-                cum_qty=0,
-                leaves_qty=qty
+                leaves_qty=data.get("qty", 100),
+                cum_qty=0
             )
             order = oms_application.order_service.handle_new_order(new_order)
             msg = "Order Created"
 
-        # --- FILL ---
+        # --- FULL FILL ---
         elif action == "FILL":
             order = oms_application.order_service.fill_order(cl_ord_id, target_client)
-            msg = "Full Fill Executed"
+            msg = "Order Fully Filled"
 
-        # --- PARTIAL ---
+        # --- PARTIAL FILL ---
         elif action == "PARTIAL":
             order = oms_application.order_service.partial_fill(cl_ord_id, target_client)
             msg = "Partial Fill Executed"
@@ -109,11 +121,10 @@ def admin_execute():
         else:
             return jsonify({"error": f"Invalid action: {action}"}), 400
 
-        # Safety Check for Order Existence
         if not order:
             return jsonify({"status": "error", "message": f"Order {cl_ord_id} not found or finished"}), 404
 
-        # Notify via FIX (Raw string SessionID to avoid C++ error)
+        # Notify via FIX
         session_id = fix.SessionID("FIX.4.4", "OMS", target_client)
         oms_application.send_execution_report(order, session_id)
 
@@ -129,7 +140,9 @@ def admin_execute():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
-    # Start FIX Engine
-    threading.Thread(target=start_fix, daemon=True).start()
-    # Start API
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Start FIX in background
+    fix_thread = threading.Thread(target=start_fix, daemon=True)
+    fix_thread.start()
+    
+    # Start REST API
+    app.run(debug=False, port=5000)

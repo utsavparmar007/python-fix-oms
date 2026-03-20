@@ -7,7 +7,7 @@ class RiskEngine:
     MAX_QTY = 10000
     MIN_PRICE = 1
     MAX_PRICE = 10000000
-    ALLOWED_SYMBOLS = {"AAPL", "GOOG", "MSFT"}
+    ALLOWED_SYMBOLS = {"AAPL", "GOOG", "MSFT","NVDA"}
 
     @classmethod
     def validate(cls, order):
