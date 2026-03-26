@@ -8,12 +8,14 @@ class PositionService:
     def update_position(self, client_id, symbol, side, qty):
         """
         Updates net position. 
-        Side 1 = Buy (Increase), Side 2 = Sell (Decrease)
+        Side '1' = Buy (Increase), Side '2' = Sell (Decrease)
         """
-        if side == 1:
+        # Using string comparison for FIX tag compatibility 
+        if side == '1':
             self.positions[client_id][symbol] += qty
-        else:
+        elif side == '2':
             self.positions[client_id][symbol] -= qty
+            
         return self.positions[client_id][symbol]
 
     def get_client_positions(self, client_id):

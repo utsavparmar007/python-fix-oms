@@ -11,28 +11,31 @@ class ClientApp(fix.Application):
         self.sessionID = None
 
     def onCreate(self, sessionID):
-        print("Client Session created:", sessionID)
+        print(f"Client Session created: {sessionID}")
 
     def onLogon(self, sessionID):
-        print("Client Logon:", sessionID)
         self.sessionID = sessionID
-        time.sleep(1)
-        #self.send_order()
+        print(f"Client Logon Successful: {sessionID}")
 
     def onLogout(self, sessionID):
-        print("Client Logout:", sessionID)
+        print(f"Client Logout: {sessionID}")
 
     def toAdmin(self, message, sessionID):
-        print("ToAdmin:", message)
+        # Using a variable to avoid f-string backslash errors
+        raw_msg = message.toString().replace('\x01', '|')
+        print(f"ToAdmin: {raw_msg}")
 
     def fromAdmin(self, message, sessionID):
-        print("FromAdmin:", message)
+        raw_msg = message.toString().replace('\x01', '|')
+        print(f"FromAdmin: {raw_msg}")
 
     def toApp(self, message, sessionID):
-        print("ToApp:", message)
+        raw_msg = message.toString().replace('\x01', '|')
+        print(f"OUT >>> {raw_msg}")
 
     def fromApp(self, message, sessionID):
-        print("FromApp:", message)
+        raw_msg = message.toString().replace('\x01', '|')
+        print(f"IN  <<< {raw_msg}")
 
     def send_order(self):
 

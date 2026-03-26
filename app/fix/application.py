@@ -1,11 +1,12 @@
 import quickfix as fix
 import quickfix44 as fix44
 import uuid
-import threading
 from app.services.order_service import OrderService
 from app.services.risk_engine import RiskException
 from app.core.logger import get_logger
+from app.models.order import Order  
 
+# Initialize the centralized logger
 logger = get_logger()
 
 # Mapping internal statuses to FIX standard values
@@ -17,10 +18,11 @@ STATUS_MAP = {
     "REJECTED": fix.OrdStatus_REJECTED,
 }
 
+# Mapping internal execution types to FIX standard values
 EXEC_TYPE_MAP = {
     "NEW": fix.ExecType_NEW,
-    "PARTIALLY_FILLED": fix.ExecType_PARTIAL_FILL,
-    "FILLED": fix.ExecType_FILL,
+    "PARTIALLY_FILLED": fix.ExecType_TRADE,
+    "FILLED": fix.ExecType_TRADE,
     "CANCELED": fix.ExecType_CANCELED,
     "REJECTED": fix.ExecType_REJECTED,
 }
@@ -30,17 +32,36 @@ class OMSApplication(fix.Application):
         super().__init__()
         self.order_service = OrderService()
 
-    def onCreate(self, sessionID): logger.info(f"Session created: {sessionID}")
-    def onLogon(self, sessionID): logger.info(f"Logon successful: {sessionID}")
-    def onLogout(self, sessionID): logger.info(f"Logout: {sessionID}")
-    def toAdmin(self, message, sessionID): pass
-    def fromAdmin(self, message, sessionID): pass
-    def toApp(self, message, sessionID): pass
+    def onCreate(self, sessionID): 
+        logger.info(f"Session created: {sessionID}")
+
+    def onLogon(self, sessionID): 
+        logger.info(f"Logon successful: {sessionID}")
+
+    def onLogout(self, sessionID): 
+        logger.info(f"Logout: {sessionID}")
+
+    def toAdmin(self, message, sessionID): 
+        # This will show the Heartbeats (35=0) being sent
+        raw_msg = message.toString().replace('\x01', '|')
+        logger.info(f"ToAdmin: {raw_msg}")
+
+    def fromAdmin(self, message, sessionID): 
+        # This will show the Heartbeats (35=0) being received
+        raw_msg = message.toString().replace('\x01', '|')
+        logger.info(f"FromAdmin: {raw_msg}")
+
+    def toApp(self, message, sessionID):
+        """Logs outgoing application messages with readable separators."""
+        raw_msg = message.toString().replace('\x01', '|')
+        logger.info(f">>> SENDING APP MSG: {raw_msg}")
 
     def fromApp(self, message, sessionID):
-        """Routes incoming messages and identifies the specific client."""
-        client_id = sessionID.getTargetCompID().getValue()
+        """Routes incoming messages and logs them."""
+        raw_msg = message.toString().replace('\x01', '|')
+        logger.info(f"<<< RECEIVED APP MSG: {raw_msg}")
         
+        client_id = sessionID.getTargetCompID().getValue()
         msg_type = fix.MsgType()
         message.getHeader().getField(msg_type)
         val = msg_type.getValue()
@@ -54,69 +75,80 @@ class OMSApplication(fix.Application):
             self.handle_replace(message, sessionID)
 
     def handle_new_order(self, message, sessionID, client_id):
-        """Processes a new order and schedules simulated fills with the client_id."""
+        """Processes a new order through the service layer."""
         try:
-            # 1. Map, Validate Risk, and Save to DB
-            order = self.order_service.handle_new_order(message)
+            symbol = fix.Symbol(); message.getField(symbol)
+            side = fix.Side(); message.getField(side)
+            qty = fix.OrderQty(); message.getField(qty)
+            price = fix.Price(); message.getField(price)
+            clordid = fix.ClOrdID(); message.getField(clordid)
+
+            
+            order_obj = Order(
+                cl_ord_id=clordid.getValue(),
+                symbol=symbol.getValue(),
+                quantity=int(qty.getValue()),
+                price=float(price.getValue()),
+                side=side.getValue(), 
+                status="NEW",
+                cum_qty=0,
+                leaves_qty=int(qty.getValue())
+            )
+
+            
+            order = self.order_service.handle_new_order(order_obj)
             self.send_execution_report(order, sessionID)
 
-            # 2. Delayed Partial Fill (2 seconds) - Passing client_id in the args list
-            #threading.Timer(2.0, self.simulate_partial_fill, [order.cl_ord_id, sessionID, client_id]).start()
-
-            # 3. Delayed Full Fill (5 seconds) - Passing client_id in the args list
-            #threading.Timer(5.0, self.simulate_full_fill, [order.cl_ord_id, sessionID, client_id]).start()
-
+        except fix.FieldNotFound as e:
+            logger.error(f"Missing mandatory FIX field: {e}")
+            self.send_reject(sessionID)
         except RiskException as e:
             logger.warning(f"Risk Reject: {e}")
             self.send_reject(sessionID)
 
-    def simulate_partial_fill(self, cl_ord_id, sessionID, client_id):
-        """Executes a partial fill and updates the specific client's position."""
-        try:
-            partial = self.order_service.partial_fill(cl_ord_id, client_id)
-            self.send_execution_report(partial, sessionID)
-        except Exception as e:
-            logger.error(f"Partial fill error for {cl_ord_id}: {e}")
-
-    def simulate_full_fill(self, cl_ord_id, sessionID, client_id):
-        """Executes a full fill and updates the specific client's position."""
-        try:
-            filled = self.order_service.fill_order(cl_ord_id, client_id)
-            self.send_execution_report(filled, sessionID)
-        except Exception as e:
-            logger.error(f"Full fill error for {cl_ord_id}: {e}")
+    def send_execution_report(self, order, sessionID):
+        """Sends a protocol-compliant FIX Execution Report (35=8)."""
+        report = fix44.ExecutionReport()
+        report.setField(fix.OrderID(str(order.cl_ord_id)))
+        report.setField(fix.ExecID(str(uuid.uuid4())))
+        report.setField(fix.ExecType(EXEC_TYPE_MAP.get(order.status, fix.ExecType_NEW)))
+        report.setField(fix.OrdStatus(STATUS_MAP.get(order.status, fix.OrdStatus_NEW)))
+        report.setField(fix.Symbol(str(order.symbol)))
+        report.setField(fix.Side(str(int(order.side)))) 
+        report.setField(fix.OrderQty(float(order.quantity)))
+        report.setField(fix.CumQty(float(order.cum_qty)))
+        report.setField(fix.LeavesQty(float(order.leaves_qty)))
+        report.setField(fix.AvgPx(float(order.price)))
+        
+        fix.Session.sendToTarget(report, sessionID)
 
     def handle_cancel(self, message, sessionID):
         orig_id = fix.OrigClOrdID()
         message.getField(orig_id)
         try:
             order = self.order_service.cancel_order(orig_id.getValue())
-            self.send_execution_report(order, sessionID)
+            if order:
+                self.send_execution_report(order, sessionID)
         except Exception as e:
             logger.error(f"Cancel failed: {e}")
 
     def handle_replace(self, message, sessionID):
-        orig_id = fix.OrigClOrdID(); price = fix.Price(); qty = fix.OrderQty()
-        message.getField(orig_id); message.getField(price); message.getField(qty)
+        orig_id = fix.OrigClOrdID()
+        price = fix.Price()
+        qty = fix.OrderQty()
+        message.getField(orig_id)
+        message.getField(price)
+        message.getField(qty)
         try:
-            order = self.order_service.replace_order(orig_id.getValue(), price.getValue(), qty.getValue())
-            self.send_execution_report(order, sessionID)
+            order = self.order_service.replace_order(
+                orig_id.getValue(), 
+                price.getValue(), 
+                qty.getValue()
+            )
+            if order:
+                self.send_execution_report(order, sessionID)
         except Exception as e:
             logger.error(f"Replace failed: {e}")
-
-    def send_execution_report(self, order, sessionID):
-        """Sends a FIX Execution Report (35=8) back to the target client."""
-        report = fix44.ExecutionReport()
-        report.setField(fix.OrderID(order.cl_ord_id))
-        report.setField(fix.ExecID(str(uuid.uuid4())))
-        report.setField(fix.ExecType(EXEC_TYPE_MAP[order.status]))
-        report.setField(fix.OrdStatus(STATUS_MAP[order.status]))
-        report.setField(fix.Symbol(order.symbol))
-        report.setField(fix.Side(int(order.side)))
-        report.setField(fix.CumQty(order.cum_qty))
-        report.setField(fix.LeavesQty(order.leaves_qty))
-        report.setField(fix.AvgPx(order.avg_px))
-        fix.Session.sendToTarget(report, sessionID)
 
     def send_reject(self, sessionID):
         report = fix44.ExecutionReport()

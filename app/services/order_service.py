@@ -16,7 +16,7 @@ class OrderService:
     # ---------------- NEW ORDER ----------------
     def handle_new_order(self, order_obj):
         """Validates and persists a new order object."""
-        # Risk validation BEFORE saving
+        # Risk validation now works because order_obj has the .symbol attribute
         RiskEngine.validate(order_obj)
         self.repo.save(order_obj)
         return order_obj
@@ -29,18 +29,16 @@ class OrderService:
     
         # Logic: Fill 50% of remaining leaves quantity
         fill_qty = order.leaves_qty // 2
-        if fill_qty <= 0: fill_qty = order.leaves_qty 
+        if fill_qty <= 0: 
+            fill_qty = order.leaves_qty 
 
-        order.cum_qty += fill_qty
-        order.leaves_qty -= fill_qty
-        order.status = "PARTIALLY_FILLED"
-    
-        # Position Tracker
-        self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
-        
-        # Record the partial fill
+        # Record the partial fill (Execution record)
         self.execution_service.create_execution(order, fill_qty, order.price)
         
+        # Position Tracker updates based on fill
+        self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
+        
+        # Note: ExecutionService handles order.cum_qty and order.leaves_qty math
         self.repo.update(order)
         return order
 
@@ -51,15 +49,12 @@ class OrderService:
             return None
     
         fill_qty = order.leaves_qty
-        order.cum_qty += fill_qty
-        order.leaves_qty = 0
-        order.status = "FILLED"
-    
-        # Position Tracker
-        self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
         
         # Record the final fill
         self.execution_service.create_execution(order, fill_qty, order.price)
+        
+        # Position Tracker
+        self.position_service.update_position(client_id, order.symbol, order.side, fill_qty)
     
         self.repo.update(order)
         return order
@@ -70,7 +65,7 @@ class OrderService:
         if not order or order.status in ["FILLED", "CANCELED"]:
             return None
 
-        # Transition state to CANCELED
+        # Transition state to CANCELED via State Machine
         order = OrderStateMachine.transition(order, "CANCELED")
         self.repo.update(order)
         return order
@@ -87,7 +82,7 @@ class OrderService:
         if new_qty is not None:
             new_qty_int = int(new_qty)
             if new_qty_int < order.cum_qty:
-                raise Exception(f"New quantity {new_qty_int} cannot be less than filled quantity {order.cum_qty}")
+                raise Exception(f"New qty {new_qty_int} < filled qty {order.cum_qty}")
             
             order.quantity = new_qty_int
             order.leaves_qty = order.quantity - order.cum_qty

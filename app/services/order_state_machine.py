@@ -3,9 +3,9 @@ class OrderStateMachine:
     VALID_TRANSITIONS = {
         "NEW": ["PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED"],
         "PARTIALLY_FILLED": ["PARTIALLY_FILLED", "FILLED", "CANCELED"],
-        "FILLED": [],    # Final state
-        "CANCELED": [],  # Final state
-        "REJECTED": []   # Final state
+        "FILLED": [],    
+        "CANCELED": [],  
+        "REJECTED": []   
     }
 
     @classmethod

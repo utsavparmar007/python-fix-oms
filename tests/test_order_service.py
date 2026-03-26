@@ -5,7 +5,7 @@ from app.models.order import Order
 
 class TestOrderService(unittest.TestCase):
     def setUp(self):
-        # We mock the repository so we don't need a real database for testing
+        # mock the repository so we don't need a real database for testing
         self.service = OrderService()
         self.service.repo = MagicMock()
         self.service.position_service = MagicMock()
@@ -17,6 +17,7 @@ class TestOrderService(unittest.TestCase):
             cl_ord_id="test_123",
             symbol="AAPL",
             quantity=100,
+            price=150.0,
             leaves_qty=100,
             cum_qty=0,
             status="NEW",
@@ -38,7 +39,7 @@ class TestOrderService(unittest.TestCase):
         mock_order = Order(cl_ord_id="test_456", status="FILLED")
         self.service.repo.get.return_value = mock_order
 
-        # This should return None or raise an error based on your service logic
+        
         result = self.service.cancel_order("test_456")
         self.assertIsNone(result)
 
