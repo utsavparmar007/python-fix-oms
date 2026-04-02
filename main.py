@@ -112,9 +112,9 @@ def admin_execute():
         # --- REPLACE ---
         elif action == "REPLACE":
             order = oms_application.order_service.replace_order(
-                cl_ord_id, 
-                data.get("price"), 
-                data.get("qty")
+                cl_ord_id=cl_ord_id,           
+                new_price=data.get("price"),   
+                new_qty=data.get("qty")        
             )
             msg = "Order Modified"
 

@@ -4,7 +4,7 @@ class RiskException(Exception):
 class RiskEngine:
     MAX_QTY = 10000
     MIN_PRICE = 1
-    MAX_PRICE = 10000000
+    MAX_PRICE = 10000
     ALLOWED_SYMBOLS = {"AAPL", "GOOG", "MSFT", "NVDA"}
 
     @classmethod

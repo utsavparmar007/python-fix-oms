@@ -73,8 +73,33 @@ class OrderService:
     # ---------------- REPLACE ORDER ----------------
     def replace_order(self, cl_ord_id, new_price=None, new_qty=None):
         order = self.repo.get(cl_ord_id)
+        
+        # 1. Validation check using dot notation
         if not order or order.status in ["FILLED", "CANCELED"]:
             return None
+        
+        # 2. Update Attributes using dot notation
+        if new_price is not None:
+            order.price = float(new_price)
+
+        if new_qty is not None:
+            new_qty_int = int(new_qty)
+            # Ensure new quantity isn't less than what we already filled
+            if new_qty_int < order.cum_qty:
+                raise Exception(f"New qty {new_qty_int} < filled qty {order.cum_qty}")
+            
+            order.quantity = new_qty_int
+            # Recalculate remaining shares
+            order.leaves_qty = order.quantity - order.cum_qty
+
+        # 3. Re-validate risk and save to DB
+        RiskEngine.validate(order)
+        self.repo.update(order)
+        return order
+    
+    def get_order_by_id(self, cl_ord_id):
+        """Bridge method for the FIX Engine to find orders in the Repository."""
+        return self.repo.get(cl_ord_id)
 
         if new_price is not None:
             order.price = float(new_price)
