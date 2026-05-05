@@ -1,0 +1,2 @@
+sqlalchemy==2.0.47
+quickfix==1.15.1
