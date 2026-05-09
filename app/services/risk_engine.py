@@ -34,14 +34,15 @@ class RiskEngine:
         if qty > limits["max_order_qty"]:
             return False, f"Order qty {qty} exceeds max allowed {limits['max_order_qty']}"
 
-        # 2. Price sanity
-        if price < limits["min_price"] or price > limits["max_price"]:
-            return False, f"Price {price} out of range"
+        # 2. Price sanity (Skip for Market Orders where price defaults to 0.0)
+        if price != 0.0:
+            if price < limits["min_price"] or price > limits["max_price"]:
+                return False, f"Price {price} out of range"
 
-        # 3. Notional value check
-        notional = qty * price
-        if notional > limits["max_order_value"]:
-            return False, f"Order notional {notional:,.0f} exceeds max allowed {limits['max_order_value']:,.0f}"
+            # 3. Notional value check
+            notional = qty * price
+            if notional > limits["max_order_value"]:
+                return False, f"Order notional {notional:,.0f} exceeds max allowed {limits['max_order_value']:,.0f}"
 
         # 4. Position limit check (would this breach the net limit?)
         session = SessionLocal()

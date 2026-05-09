@@ -5,15 +5,20 @@ class OrderBook:
         self.symbol = symbol
         self.bids = []  # Price DESC, Time ASC (buyers)
         self.asks = []  # Price ASC,  Time ASC  (sellers)
+        self._sequence_counter = 0
 
     def add_order(self, order):
         """Adds an order to the correct side and maintains Price-Time Priority."""
+        if not hasattr(order, '_sequence'):
+            order._sequence = self._sequence_counter
+            self._sequence_counter += 1
+            
         if order.side == 1: #buy
             self.bids.append(order)
-            self.bids.sort(key=lambda x: (-x.price, x.cl_ord_id))
+            self.bids.sort(key=lambda x: (-x.price, x._sequence))
         else:  #sell
             self.asks.append(order)
-            self.asks.sort(key=lambda x: (x.price, x.cl_ord_id))
+            self.asks.sort(key=lambda x: (x.price, x._sequence))
 
     def best_bid(self):
         """Return the highest resting bid price, or 0.0 if empty."""

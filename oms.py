@@ -28,7 +28,6 @@ def main():
 
         print("--- FIX OMS STARTED ---")
         print("Listening for client connections...")
-        print("Multi-client support: YES  |  Risk checks: YES  |  Positions: YES")
 
         # 4. Keep the main thread alive
         while True:

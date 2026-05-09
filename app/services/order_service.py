@@ -12,9 +12,10 @@ class OrderService:
     def __init__(self, session_factory):
         self.Session = session_factory
 
-    def handle_new_order_from_fix(self, cl_ord_id, symbol, side, quantity, price,
-                                   client_id="CLIENT", order_type="LIMIT"):
-        session = SessionLocal()
+    def handle_new_order_from_fix(self, cl_ord_id, symbol, side, quantity,
+                               price, client_id, order_type,
+                               broker_id=None, trader_id=None, client_ref=None, time_in_force="0"):
+        session = self.Session()
         try:
             order = Order(
                 cl_ord_id  = cl_ord_id,
@@ -28,8 +29,10 @@ class OrderService:
                 cum_qty    = 0,
                 leaves_qty = int(quantity),
                 avg_px     = 0.0,
-                last_qty   = 0,
-                last_px    = 0.0,
+                broker_id  = broker_id,    
+                trader_id  = trader_id,    
+                client_ref = client_ref,
+                time_in_force = time_in_force   
             )
             session.add(order)
             session.commit()
@@ -42,7 +45,7 @@ class OrderService:
             session.close()
 
     def handle_cancel_request(self, orig_cl_ord_id, new_cl_ord_id):
-        session = SessionLocal()
+        session = self.Session()
         try:
             order = session.query(Order).filter(Order.cl_ord_id == orig_cl_ord_id).first()
 
@@ -50,6 +53,10 @@ class OrderService:
                 return None, False, "Unknown Order"
             if order.status in ["FILLED", "CANCELED"]:
                 return order, False, "Too late to cancel"
+            
+            # ── Check if the NEW ClOrdID is already used ──────
+            if self.is_duplicate_clordid(order.client_id, new_cl_ord_id):
+                return order, False, f"Duplicate ClOrdID: {new_cl_ord_id}"
 
             order.cl_ord_id  = new_cl_ord_id
             order.status     = "CANCELED"
@@ -57,11 +64,15 @@ class OrderService:
             session.commit()
             session.refresh(order)
             return order, True, ""
+        except Exception as e:
+            session.rollback()
+            logger.error(f"handle_cancel_request error: {e}")
+            return None, False, str(e)
         finally:
             session.close()
 
     def handle_replace_request(self, orig_cl_ord_id, new_cl_ord_id, new_price, new_qty):
-        session = SessionLocal()
+        session = self.Session()
         try:
             order = session.query(Order).filter(Order.cl_ord_id == orig_cl_ord_id).first()
 
@@ -69,6 +80,11 @@ class OrderService:
                 return None, False, "Unknown Order"
             if order.status in ["FILLED", "CANCELED"]:
                 return order, False, "Too late to replace"
+            
+            # ── Check if the NEW ClOrdID is already used ──────
+            if self.is_duplicate_clordid(order.client_id, new_cl_ord_id):
+                return order, False, f"Duplicate ClOrdID: {new_cl_ord_id}"
+            
             if int(new_qty) < order.cum_qty:
                 return order, False, "New qty < already filled qty"
 
@@ -87,11 +103,15 @@ class OrderService:
             session.commit()
             session.refresh(order)
             return order, True, ""
+        except Exception as e:
+            session.rollback()
+            logger.error(f"handle_replace_request error: {e}")
+            return None, False, str(e)
         finally:
             session.close()
 
     def partial_fill(self, cl_ord_id, client_id, fill_qty, fill_price):
-        session = SessionLocal()
+        session = self.Session()
         try:
             order = session.query(Order).filter(Order.cl_ord_id == cl_ord_id).first()
             if not order or order.status in ["FILLED", "CANCELED"]:
@@ -112,6 +132,7 @@ class OrderService:
                 order.status = "PARTIALLY_FILLED"
 
             execution = Execution(
+                order_id   = order.order_id,
                 cl_ord_id  = cl_ord_id,
                 symbol     = order.symbol,
                 fill_qty   = fill_qty,
@@ -144,9 +165,42 @@ class OrderService:
                 order.leaves_qty = 0
 
             session.commit()
+            for order in active:
+                session.refresh(order)
             return active
         except Exception as e:
             session.rollback()
             raise e
+        finally:
+            session.close()
+            
+    def cancel_remainder(self, cl_ord_id):
+        """Forces an order's status to CANCELED and wipes out its remaining quantity."""
+        session = self.Session()
+        try:
+            order = session.query(Order).filter(Order.cl_ord_id == cl_ord_id).first()
+            if order:
+                order.status = "CANCELED"  # Or your equivalent OrdStatus enum (e.g., "4")
+                order.leaves_qty = 0
+                session.commit()
+        except Exception as e:
+            logger.error(f"Failed to cancel remainder for {cl_ord_id}: {e}")
+            session.rollback()
+        finally:
+            session.close()
+            
+    def is_duplicate_clordid(self, client_id, cl_ord_id):
+        session = self.Session()
+        try:
+            # Look for any existing order with the exact same Client ID and ClOrdID
+            existing_order = session.query(Order).filter(
+                Order.client_id == client_id,
+                Order.cl_ord_id == cl_ord_id
+            ).first()
+            
+            return existing_order is not None
+        except Exception as e:
+            logger.error(f"Database error checking duplicate ClOrdID: {e}")
+            return True # Fail safe: assume duplicate if DB crashes
         finally:
             session.close()
