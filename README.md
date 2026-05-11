@@ -298,20 +298,6 @@ Common tags used throughout the system:
 
 ---
 
-## Known Limitations
-
-- **Order book does not survive restarts.** The in-memory order book resets when the OMS stops. Orders marked active in the database will NOT be re-queued in the book after a restart.
-- **Market Data Requests (35=V) are not supported.** Market data is updated internally after every fill — clients cannot subscribe via FIX.
-- **No TLS/SSL.** FIX sessions are unencrypted. Do not use in production without a secure transport layer.
-- **SQLite is single-writer.** Under very high order throughput, SQLite may become a bottleneck. A PostgreSQL backend would be more appropriate for production use.
-
----
-
-## Logs
-
-QuickFIX writes session logs to the `logs/` directory and stores message sequences in `store/`. These are created automatically and are useful for debugging raw FIX traffic. Each log file is named by session (e.g. `FIX.4.4-OMS-CLIENT.messages.log`).
-
----
 
 ## Dependencies
 
