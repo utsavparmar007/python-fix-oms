@@ -61,9 +61,54 @@ FIX OMS/
 ├── store/                          ← FIX message store (auto-created)
 └── logs/                           ← FIX session logs (auto-created)
 ```
+```mermaid
+graph TD
+    %% Nodes
+    Client["🖥️ Client<br>(FIX Messenger / Algo)"]
+    OMSApp["🌐 OMSApplication<br>(app/fix/application.py)"]
+    
+    OrderSvc1["📦 OrderService<br>(Duplicate Check)"]
+    Risk["🛡️ RiskEngine<br>(Pre-trade Check)"]
+    OrderSvc2["💾 OrderService<br>(Persist New)"]
+    DB[("🗄️ SQLite DB<br>(oms.db)")]
+    
+    Matcher["⚙️ MatchingEngine<br>(Core Loop)"]
+    LiqMgr["📊 LiquidityManager<br>(FOK/IOC & Book)"]
+    OrderSvc3["💾 OrderService<br>(Persist Fills)"]
+    PosSvc["📈 PositionService<br>(Net Qty / P&L)"]
+    MDSvc["📡 MarketDataService<br>(BBO + VWAP)"]
 
----
+    %% Edges
+    Client -->|"TCP: 35=D"| OMSApp
+    OMSApp -.->|"TCP: 35=8 (New)"| Client
+    
+    OMSApp -->|"1. Check ID"| OrderSvc1
+    OMSApp -->|"2. Risk Check"| Risk
+    Risk -->|"3. Save Order"| OrderSvc2
+    OrderSvc2 --> DB
+    
+    OMSApp -->|"5. process_new_order"| Matcher
+    Matcher -.->|"10. send execution_report()"| OMSApp
+    
+    Matcher -->|"6. FOK/IOC check<br>& queue order"| LiqMgr
+    Matcher -->|"7. partial_fill()"| OrderSvc3
+    Matcher -->|"8. Update Pos"| PosSvc
+    Matcher -->|"9. Emit Data"| MDSvc
 
+    %% Styling with vibrant colors and white text for contrast
+    style Client fill:#2c3e50,stroke:#1a252f,stroke-width:2px,color:#ffffff
+    style OMSApp fill:#2980b9,stroke:#1f618d,stroke-width:2px,color:#ffffff
+    style OrderSvc1 fill:#8e44ad,stroke:#6c3483,stroke-width:2px,color:#ffffff
+    style OrderSvc2 fill:#8e44ad,stroke:#6c3483,stroke-width:2px,color:#ffffff
+    style OrderSvc3 fill:#8e44ad,stroke:#6c3483,stroke-width:2px,color:#ffffff
+    style Risk fill:#c0392b,stroke:#922b21,stroke-width:2px,color:#ffffff
+    style DB fill:#7f8c8d,stroke:#616a6b,stroke-width:2px,color:#ffffff
+    style Matcher fill:#16a085,stroke:#117864,stroke-width:2px,color:#ffffff
+    style LiqMgr fill:#27ae60,stroke:#1e8449,stroke-width:2px,color:#ffffff
+    style PosSvc fill:#f39c12,stroke:#b9770e,stroke-width:2px,color:#ffffff
+    style MDSvc fill:#d35400,stroke:#a04000,stroke-width:2px,color:#ffffff
+```
+```
 ## Setup
 
 **Requirements:** Python 3.9+
